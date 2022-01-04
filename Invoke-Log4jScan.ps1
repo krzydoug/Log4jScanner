@@ -334,7 +334,7 @@ rule SUSP_JDNIExploit_Error_Indicators_Dec21_1 {
             Set-Content -Value $yaradefinition -Path yara.yar -Force
 
             try{
-                $drivelist = $env:HOMEDRIVE #(Get-WmiObject -Class Win32_logicaldisk | Where-Object {$_.DriveType -Match '2|3'  -and $_.FreeSpace}).DeviceID
+                $drivelist = $env:SystemDrive #(Get-WmiObject -Class Win32_logicaldisk | Where-Object {$_.DriveType -Match '2|3'  -and $_.FreeSpace}).DeviceID
             }
             catch{
                 Write-Warning "Error getting drives: $($_.exception.message)"
@@ -397,69 +397,74 @@ rule SUSP_JDNIExploit_Error_Indicators_Dec21_1 {
             $jarfilelist = $filelist | Where-Object {$_ -match '\.jar$'}
 
             $percent = 0
-            $step = 100 / @($jarfilelist).count
 
-            foreach ($jarfile in $jarfilelist) {
+            if($jarfilelist){
+                $step = 100 / @($jarfilelist).count
 
-                Write-Progress -Activity "Searching jar files for JndiLookup.class references" -Status "Current file: $jarfile" -PercentComplete ($percent += $step)
+                foreach ($jarfile in $jarfilelist) {
 
-                Add-Content $scriptlog -Value "$(get-date) Searching $_ for references to JndiLookup.class"
+                    Write-Progress -Activity "Searching jar files for JndiLookup.class references" -Status "Current file: $jarfile" -PercentComplete ($percent += $step)
 
-                if (select-string -Quiet -Path $jarfile "JndiLookup.class"){
-                    Write-Verbose "Jar file $jarfile contains references to JndiLookup.class" 
+                    Add-Content $scriptlog -Value "$(get-date) Searching $_ for references to JndiLookup.class"
 
-                    if (!(test-path .\L4Jdetections.txt -ErrorAction SilentlyContinue)){
-                        set-content -path .\L4Jdetections.txt -Value "! CAUTION !`r`n$(get-date)"
+                    if (select-string -Quiet -Path $jarfile "JndiLookup.class"){
+                        Write-Verbose "Jar file $jarfile contains references to JndiLookup.class" 
+
+                        if (!(test-path .\L4Jdetections.txt -ErrorAction SilentlyContinue)){
+                            set-content -path .\L4Jdetections.txt -Value "! CAUTION !`r`n$(get-date)"
+                        }
+                        Add-Content .\L4Jdetections.txt -Value "POTENTIALLY VULNERABLE JAR: $($jarfile)"
+                        $detection=1
                     }
-                    Add-Content .\L4Jdetections.txt -Value "POTENTIALLY VULNERABLE JAR: $($jarfile)"
-                    $detection=1
                 }
-            }
 
-            Write-Progress -Activity "Searching jar files for JndiLookup.class references" -Completed
+                Write-Progress -Activity "Searching jar files for JndiLookup.class references" -Completed
+            }
             
             $textfilelist = $filelist | Where-Object {$_ -notmatch '\.jar$'}
 
-            $percent = 0
-            $step = 100 / @($textfilelist).count
+            if($textfilelist){
+                $percent = 0
+                $step = 100 / @($textfilelist).count
 
-            foreach ($file in $textfilelist) {
-                if ($file -match 'CentraStage' -or $file -match 'L4Jdetections\.txt') {
-                    continue
-                }
-
-                #add it to the logfile, with a pause for handling
-                try{
-                    Add-Content $scriptlog -Value $file -ErrorAction Stop
-                }
-                catch{
-                    Start-Sleep -Seconds 1
-                    Add-Content $scriptlog -Value $file -ErrorAction SilentlyContinue
-                }
-
-                #scan it
-                clear-variable result -ErrorAction SilentlyContinue
-
-                Write-Progress -Activity "Scanning files for evidence of attacks" -Status "Current file: $file" -PercentComplete ($percent += $step)
-
-                try{
-                    $result = . $filename `"yara.yar`" `"$file`" '-s'
-                }
-                catch{
-                    Write-Warning "Error scanning $($file): $($_.exception.message)"
-                }
-
-                if ($result) {
-                    Write-Warning "File $file shows evidence of attack attempts"
-
-                    $detection=1
-
-                    if (!(Test-Path .\L4Jdetections.txt -ErrorAction SilentlyContinue)){
-                        Set-Content -path .\L4Jdetections.txt -Value "! CAUTION !`r`n$(get-date)"
+                foreach ($file in $textfilelist) {
+                    if ($file -match 'CentraStage' -or $file -match 'L4Jdetections\.txt') {
+                        continue
                     }
 
-                    Add-Content -path .\L4Jdetections.txt -Value "! INFECTION DETECTION !`r`n$(get-date)"
-                    Add-Content .\L4Jdetections.txt -Value $result
+                    #add it to the logfile, with a pause for handling
+                    try{
+                        Add-Content $scriptlog -Value $file -ErrorAction Stop
+                    }
+                    catch{
+                        Start-Sleep -Seconds 1
+                        Add-Content $scriptlog -Value $file -ErrorAction SilentlyContinue
+                    }
+
+                    #scan it
+                    clear-variable result -ErrorAction SilentlyContinue
+
+                    Write-Progress -Activity "Scanning files for evidence of attacks" -Status "Current file: $file" -PercentComplete ($percent += $step)
+
+                    try{
+                        $result = . $filename `"yara.yar`" `"$file`" '-s'
+                    }
+                    catch{
+                        Write-Warning "Error scanning $($file): $($_.exception.message)"
+                    }
+
+                    if ($result) {
+                        Write-Warning "File $file shows evidence of attack attempts"
+
+                        $detection=1
+
+                        if (!(Test-Path .\L4Jdetections.txt -ErrorAction SilentlyContinue)){
+                            Set-Content -path .\L4Jdetections.txt -Value "! CAUTION !`r`n$(get-date)"
+                        }
+
+                        Add-Content -path .\L4Jdetections.txt -Value "! INFECTION DETECTION !`r`n$(get-date)"
+                        Add-Content .\L4Jdetections.txt -Value $result
+                    }
                 }
             }
 
@@ -517,6 +522,10 @@ rule SUSP_JDNIExploit_Error_Indicators_Dec21_1 {
             catch{
                 Write-Warning "Error running script locally"
             }
+        }
+
+        if($originalvbpref){
+            $VerbosePreference = $originalvbpref
         }
     }
 
